@@ -1,0 +1,91 @@
+variables:
+  HOSTNAME: "hostname"
+  DEV-HOSTNAME: "dev-hostname"
+  DOMAIN: "domain"
+  GITLAB-RUNNER-DEV-TAG: "gitlab-runner-dev-tag"
+  GITLAB-RUNNER-PROD-TAG: "gitlab-runner-prod-tag"
+
+stages:
+  - build
+  - test
+  - review
+  - staging
+  - production
+
+build:
+  stage: build
+  script:
+    - bundle install
+  tags:
+    - $GITLAB-RUNNER-DEV-TAG
+  except:
+    - main
+
+build_main:
+  stage: build
+  script:
+    - bundle install
+  tags:
+    - $GITLAB-RUNNER-PROD-TAG
+  only:
+    - main
+
+test:
+  stage: test
+  script:
+    - bundle exec rspec
+  tags:
+    - $GITLAB-RUNNER-DEV-TAG
+  except:
+    - main
+
+review:
+  stage: review
+  script:
+    - ruby scripts/setup_review.rb $CI_COMMIT_REF_NAME $DB_DEV_PASSWORD
+  environment:
+    name: review/$CI_BUILD_REF_NAME
+    Durl: http://$CI_BUILD_REF_SLUG.$DEV-HOSTNAME.$DOMAIN
+    on_stop: stop_review
+  only:
+    - branches
+  except:
+    - main
+    - staging
+  tags:
+    - $GITLAB-RUNNER-DEV-TAG
+
+stop_review:
+  stage: review
+  script:
+    - ruby scripts/cleanup_review.rb $CI_COMMIT_REF_NAME
+  when: manual
+  environment:
+    name: review/$CI_BUILD_REF_NAME
+    action: stop
+  tags:
+    - $GITLAB-RUNNER-DEV-TAG
+
+stage_master:
+  stage: staging
+  script:
+    - ruby scripts/setup_review.rb $CI_COMMIT_REF_NAME $DB_DEV_PASSWORD
+  environment:
+    name: staging
+    url: http://$DEV-HOSTNAME.$DOMAIN
+  only:
+    - master
+  tags:
+    - $GITLAB-RUNNER-DEV-TAG
+
+deploy_master:
+  stage: production
+  script:
+    - ruby scripts/setup_master.rb $DB_PROD_PASSWORD
+  environment:
+    name: production
+    url: http://$HOSTNAME.$DOMAIN
+  only:
+    - master
+  tags:
+    - $GITLAB-RUNNER-TAG
